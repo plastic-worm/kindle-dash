@@ -86,7 +86,7 @@ def load(fixture_dir=None):
         cond=COND.get(cur["weather_code"], ""),
         hi=round(dy["temperature_2m_max"][0]), lo=round(dy["temperature_2m_min"][0]),
         hours=hours,
-        htemp=[round(v) for v in hr["temperature_2m"][sl]],
+        htemp=[round(cur["temperature_2m"])] + [round(v) for v in hr["temperature_2m"][sl][1:]],
         hcond=[icon_for(c, d) for c, d in zip(hr["weather_code"][sl], hr["is_day"][sl])],
         hprob=[v or 0 for v in hr["precipitation_probability"][sl]],
         hmm=[v or 0 for v in hr["precipitation"][sl]],
@@ -238,9 +238,9 @@ class Canvas:
             t = (lines[-1] + " " + wd).strip()
             if F(14, True).getlength(t) <= w-54: lines[-1] = t
             else: lines.append(wd)
-        lines = lines[:2]
+        lines = lines[:3]
         for k, ln in enumerate(lines):
-            self.text((x+44, cy + (k-(len(lines)-1)/2)*18), ln, fnt, anchor="lm")
+            self.text((x+44, cy + (k-(len(lines)-1)/2)*17), ln, fnt, anchor="lm")
 
     def next24(self, x, y, w, h, step=3):
         D = self.D
@@ -248,7 +248,7 @@ class Canvas:
         hrs, t, c = D["hours"], D["htemp"], D["hcond"]
         n = len(hrs)
         px0, px1 = x+46, x+w-22
-        top, bot = y+64, y+h-24-59
+        top, bot = y+72, y+h-24-59
         cbot = bot
         lo, hi = min(t)-1, max(t)+1
         X = lambda i: px0 + (px1-px0)*i/(n-1)
