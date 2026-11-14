@@ -21,6 +21,8 @@ BLACK, DARK, MID, LIGHT, PALE, WHITE = 0, 70, 140, 200, 232, 255
 
 _fc = {}
 def F(size, bold=False):
+    # enlarge small text for e-ink legibility (+3 px up to 15 px, +2 px for 16-18 px)
+    size = size + 3 if size <= 15 else size + 2 if size <= 18 else size
     k = (size, bold)
     if k not in _fc:
         _fc[k] = ImageFont.truetype(os.path.join(FONTS, "DejaVuSans-Bold.ttf" if bold else "DejaVuSans.ttf"), size)
@@ -117,7 +119,8 @@ class Canvas:
         self.d = ImageDraw.Draw(self.im)
 
     def text(self, xy, s, font, fill=BLACK, anchor="la"):
-        self.d.text(xy, s, font=font, fill=fill, anchor=anchor)
+        # all text is solid black for e-ink legibility (white only on the black "today" box)
+        self.d.text(xy, s, font=font, fill=WHITE if fill == WHITE else BLACK, anchor=anchor)
 
     def panel(self, x, y, w, h, title=None):
         self.d.rounded_rectangle([x, y, x+w, y+h], radius=10, outline=BLACK, width=2)
@@ -164,7 +167,6 @@ class Canvas:
         self.panel(x, y, w, h)
         b = y+30
         self.text((x+14, b), D["place"], F(18, True), anchor="ls")
-        self.text((x+w-12, y+8), "Updated " + clock(D["now"]), F(12), fill=DARK, anchor="ra")
         b += 58
         num = str(D["temp"])
         self.text((x+10, b), num, F(big, True), anchor="ls")
@@ -172,37 +174,34 @@ class Canvas:
         self.text((nx, b-big*0.72), "°C", F(24, True), anchor="lt")
         self.icon(icon_for(D["code"], D["is_day"]), x+w-52, b-big*0.36, 72)
         b += 20
-        self.text((x+16, b), f'{round(D["temp"]*9/5+32)}°F', F(17, True), fill=DARK, anchor="ls")
-        b += 25
-        hl_ = f'H:{D["hi"]}°  L:{D["lo"]}°'
-        cond = D["cond"]
-        while cond and F(18, True).getlength(cond + "   " + hl_) > w-24:
-            cond = cond[:-1]
-        self.text((x+14, b), (cond + "   " if cond else "") + hl_, F(18, True), anchor="ls")
-        b += 22
-        feels = f'Feels {D["feels"]}°'
-        self.text((x+14, b), feels, F(15), fill=DARK, anchor="ls")
-        self.text((x+14+F(15).getlength(feels)+18, b), f'Wind {D["wind"]} km/h', F(15), fill=DARK, anchor="ls")
-        b += 23
+        self.text((x+16, b), f'{round(D["temp"]*9/5+32)}°F    H:{D["hi"]}°  L:{D["lo"]}°', F(17, True), anchor="ls")
         n = D["now"]
-        self.text((x+14, b), f'{n.strftime("%A")}, {n.day} {n.strftime("%B %Y")}', F(15, True), anchor="ls")
+        b += 36
+        self.text((x+14, b), n.strftime("%A"), F(28, True), anchor="ls")
+        b += 32
+        date = f'{n.day} {n.strftime("%B %Y")}'
+        sz = 26
+        while sz > 19 and F(sz, True).getlength(date) > w-26:
+            sz -= 1
+        self.text((x+14, b), date, F(sz, True), anchor="ls")
+
+    def sun_icon(self, cx, cy, up):
+        d = self.d
+        d.line([cx-11, cy+3, cx+11, cy+3], fill=BLACK, width=2)          # horizon
+        d.pieslice([cx-7, cy-4, cx+7, cy+10], 180, 360, fill=BLACK)      # half sun
+        ax = cx+15
+        if up:
+            d.line([ax, cy+4, ax, cy-9], fill=BLACK, width=2); d.polygon([(ax-4, cy-6), (ax+4, cy-6), (ax, cy-12)], fill=BLACK)
+        else:
+            d.line([ax, cy-9, ax, cy+4], fill=BLACK, width=2); d.polygon([(ax-4, cy+1), (ax+4, cy+1), (ax, cy+7)], fill=BLACK)
 
     def small_sun(self, x, y, w, h):
         D = self.D
-        self.panel(x, y, w, h, "Sunrise/Sunset")
-        cx, cy, r = x+w/2+18, y+h-26, min(w*0.3, h*0.42)
-        self.d.arc([cx-r, cy-r, cx+r, cy+r], 180, 360, fill=MID, width=2)
-        self.d.line([cx-r-6, cy, cx+r+6, cy], fill=BLACK, width=1)
-        sr, ss, n = D["sunrise"], D["sunset"], D["now"]
-        if sr <= n <= ss:
-            f = (n-sr)/(ss-sr)
-            sx, sy = cx-r*math.cos(math.pi*f), cy-r*math.sin(math.pi*f)
-            self.d.ellipse([sx-5, sy-5, sx+5, sy+5], fill=BLACK)
-        else:  # night: hollow dot on the horizon
-            sx = cx+r if n > ss else cx-r
-            self.d.ellipse([sx-5, cy-5, sx+5, cy+5], fill=WHITE, outline=BLACK, width=2)
-        self.text((x+10, y+h-10), "↑" + clock(sr).replace(" AM", ""), F(13, True), anchor="ls")
-        self.text((x+w-10, y+h-10), "↓" + clock(ss).replace(" PM", ""), F(13, True), anchor="rs")
+        self.panel(x, y, w, h, "Daylight")
+        for k, (t, up) in enumerate(((D["sunrise"], True), (D["sunset"], False))):
+            base = y+52+k*28
+            self.sun_icon(x+20, base-7, up)
+            self.text((x+44, base), clock(t).replace("AM", "am").replace("PM", "pm"), F(20, True), anchor="ls")
 
     def small_aqi(self, x, y, w, h):
         v = self.D["aqi"]
@@ -245,10 +244,11 @@ class Canvas:
     def next24(self, x, y, w, h, step=3):
         D = self.D
         self.panel(x, y, w, h, "Next 24 h")
+        self.text((x+w-12, y+8), "Updated " + clock(D["now"]), F(12), anchor="ra")
         hrs, t, c = D["hours"], D["htemp"], D["hcond"]
         n = len(hrs)
-        px0, px1 = x+46, x+w-22
-        top, bot = y+72, y+h-24-59
+        px0, px1 = x+56, x+w-22
+        top, bot = y+80, y+h-24-65
         cbot = bot
         lo, hi = min(t)-1, max(t)+1
         X = lambda i: px0 + (px1-px0)*i/(n-1)
@@ -257,26 +257,26 @@ class Canvas:
         self.d.polygon(pts + [(px1, cbot), (px0, cbot)], fill=PALE)
         self.d.line(pts, fill=BLACK, width=3)
         cwid = (px1-px0)/(n-1)
-        wy0, wy1 = bot+4, bot+19
-        py0, py1 = bot+22, bot+37
-        iy0, iy1 = bot+40, bot+55
-        lx = x+20
-        wc = (wy0+wy1)/2; x0 = lx-9
-        self.d.line([x0, wc-3, x0+11, wc-3], fill=DARK, width=2)
-        self.d.arc([x0+8, wc-9, x0+14, wc-3], -90, 180, fill=DARK, width=2)
-        self.d.line([x0-1, wc+3, x0+14, wc+3], fill=DARK, width=2)
-        self.d.arc([x0+11, wc+3, x0+17, wc+9], 0, 270, fill=DARK, width=2)
-        self.text((lx, (py0+py1)/2), "%", F(13, True), fill=DARK, anchor="mm")
-        dy_ = (iy0+iy1)/2+1
-        self.d.polygon([(lx, dy_-8), (lx-4, dy_), (lx+4, dy_)], fill=DARK)
-        self.d.ellipse([lx-4.3, dy_-3, lx+4.3, dy_+5], fill=DARK)
+        wy0, wy1 = bot+4, bot+21
+        py0, py1 = bot+24, bot+41
+        iy0, iy1 = bot+44, bot+61
+        lx = x+24
+        wc = (wy0+wy1)/2; x0 = lx-13
+        self.d.line([x0, wc-4, x0+16, wc-4], fill=BLACK, width=3)
+        self.d.arc([x0+12, wc-13, x0+21, wc-4], -90, 180, fill=BLACK, width=3)
+        self.d.line([x0-1, wc+4, x0+20, wc+4], fill=BLACK, width=3)
+        self.d.arc([x0+16, wc+4, x0+25, wc+13], 0, 270, fill=BLACK, width=3)
+        self.text((lx, (py0+py1)/2), "%", F(19, True), anchor="mm")
+        dy_ = (iy0+iy1)/2+2
+        self.d.polygon([(lx, dy_-12), (lx-6, dy_), (lx+6, dy_)], fill=BLACK)
+        self.d.ellipse([lx-6.3, dy_-5, lx+6.3, dy_+7], fill=BLACK)
         for i in range(n):
             l, r = X(i)-cwid/2+1, X(i)+cwid/2-1
             ws, pr, mm = D["hwind"][i], D["hprob"][i], D["hmm"][i]
             wl = 0 if ws < 5 else 1 if ws < 20 else 2 if ws < 39 else 3
             rl = 0 if mm == 0 else 1 if mm < 2.5 else 2 if mm <= 7.6 else 3
-            for (a, b_), frac, fill in (((wy0, wy1), wl/3, DARK), ((py0, py1), pr/100, MID), ((iy0, iy1), rl/3, DARK)):
-                self.d.rectangle([l, a, r, b_], outline=LIGHT)
+            for (a, b_), frac, fill in (((wy0, wy1), wl/3, BLACK), ((py0, py1), pr/100, BLACK), ((iy0, iy1), rl/3, BLACK)):
+                self.d.rectangle([l, a, r, b_], outline=MID)
                 self.cfill(l, r, a, b_, frac, fill)
         lab_y = iy1
         idx = list(range(0, n, step)) + ([n-1] if (n-1) % step else [])
@@ -284,9 +284,9 @@ class Canvas:
             px, py = pts[i]
             self.d.ellipse([px-4, py-4, px+4, py+4], fill=BLACK)
             self.text((px, py-8), f"{t[i]}°", F(14, True), anchor="mb")
-            self.icon(c[i], px, y+36, 26)
-            self.text((px, lab_y+5), "Now" if i == 0 else hl(hrs[i]), F(13, True) if i == 0 else F(13),
-                      fill=BLACK if i == 0 else DARK, anchor="ma")
+            self.icon(c[i], px, y+40, 34)
+            if i < n-1:   # no label under the last point: it would collide with the one before
+                self.text((px, lab_y+5), "Now" if i == 0 else hl(hrs[i]), F(13, True), anchor="ma")
 
     def ten_day(self, x, y, w, h):
         D = self.D
@@ -295,21 +295,20 @@ class Canvas:
         lo_all = min(d[2] for d in days); hi_all = max(d[3] for d in days)
         if hi_all == lo_all: hi_all += 1
         cw = (w-20)/len(days)
-        rt, rb = y+88, y+h-12
+        rt, rb = y+116, y+h-26
         Yv = lambda v: rb-(rb-rt)*(v-lo_all)/(hi_all-lo_all)
         for i, (name, ic, lo, hi, pr) in enumerate(days):
             cx = x+10+cw*i+cw/2
-            self.text((cx, y+24), name, F(14, True), anchor="ma")
-            self.icon(ic, cx, y+52, 28)
-            if pr >= 20: self.text((cx, y+71), f"{pr}%", F(11, True), anchor="ma")
-            bx = cx-12
-            self.d.rounded_rectangle([bx-3, rt, bx+3, rb], radius=3, fill=PALE)
-            self.d.rounded_rectangle([bx-3, Yv(hi), bx+3, Yv(lo)], radius=3, fill=DARK)
+            self.text((cx, y+22), name, F(14, True), anchor="ma")
+            self.icon(ic, cx, y+58, 36)
+            if pr >= 20: self.text((cx, y+80), f"{pr}%", F(11, True), anchor="ma")
+            self.d.rounded_rectangle([cx-4, rt, cx+4, rb], radius=4, fill=LIGHT)   # full range track
+            self.d.rounded_rectangle([cx-4, Yv(hi), cx+4, Yv(lo)], radius=4, fill=BLACK)      # this day's range
             if i == 0:
                 m = Yv(min(max(D["temp"], lo_all), hi_all))
-                self.d.ellipse([bx-5, m-5, bx+5, m+5], fill=WHITE, outline=BLACK, width=2)
-            self.text((bx+7, rt-1), f"{hi}°", F(14, True), anchor="lt")
-            self.text((bx+7, rb+1), f"{lo}°", F(13), fill=DARK, anchor="lb")
+                self.d.ellipse([cx-5, m-5, cx+5, m+5], fill=WHITE, outline=BLACK, width=2)
+            self.text((cx+2, rt-4), f"{hi}°", F(15, True), anchor="mb")   # highs on one row
+            self.text((cx+2, rb+4), f"{lo}°", F(14), anchor="mt")         # lows on one row
 
     def minical(self, x, y, w, h, year, month, today=None):
         self.panel(x, y, w, h)
@@ -332,7 +331,7 @@ class Canvas:
                 if not dd: continue
                 cx = gx0+cw*c+cw/2; cy = hy+18+rh*r+rh/2
                 if dd == today:
-                    s = min(cw, rh)*0.48
+                    s = min(cw, rh)*0.6
                     self.d.rounded_rectangle([cx-s, cy-s, cx+s, cy+s], radius=4, fill=BLACK)
                     self.text((cx, cy), str(dd), F(14, True), fill=WHITE, anchor="mm")
                 else:
@@ -344,7 +343,7 @@ def render(D, out=OUT):
     sw, sh = 140, (H-8)//2
     c.weather_today(8, ys[0], 288, H)
     c.small_sun(304, ys[0], sw, sh);           c.small_aqi(304+sw+8, ys[0], sw, sh)
-    c.small_pollen(304, ys[0]+sh+8, sw, sh);   c.small_alert(304+sw+8, ys[0]+sh+8, sw, sh)
+    c.small_alert(304, ys[0]+sh+8, 288, sh)
     c.next24(8, ys[1], 584, H)
     c.ten_day(8, ys[2], 584, H)
     n = D["now"]
