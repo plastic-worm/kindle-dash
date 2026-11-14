@@ -230,14 +230,28 @@ class Canvas:
         col = BLACK if active else MID
         self.d.polygon([(cx, cy-13), (cx-13, cy+10), (cx+13, cy+10)], outline=col, width=2)
         self.text((cx, cy+3), "!", F(13, True), fill=col, anchor="mm")
-        msg = "unavailable" if al is None else (al[0] + (f" +{len(al)-1}" if len(al) > 1 else "")) if al else "No active alerts"
+        if al is None: names = ["unavailable"]
+        elif not al: names = ["No active alerts"]
+        else:
+            names = []
+            for n in al:                      # NWS often repeats the same alert (updates)
+                if n not in names: names.append(n)
         fnt = F(14, True) if active else F(14)
-        words, lines = msg.split(), [""]
-        for wd in words:
-            t = (lines[-1] + " " + wd).strip()
-            if F(14, True).getlength(t) <= w-54: lines[-1] = t
-            else: lines.append(wd)
-        lines = lines[:3]
+        groups = []
+        for n in names:                       # each alert on its own line(s), wrapped
+            g, cur = [], ""
+            for wd in n.split():
+                t = (cur + " " + wd).strip()
+                if fnt.getlength(t) <= w-54: cur = t
+                else: g.append(cur); cur = wd
+            groups.append(g + [cur])
+        lines, shown = [], 0
+        for g in groups:                      # max 3 lines; keep 1 for "and N more" if needed
+            room = 3 if shown == len(groups) - 1 else 2
+            if len(lines) + len(g) > room: break
+            lines += g; shown += 1
+        if shown < len(groups):
+            lines.append(f"and {len(groups) - shown} more")
         for k, ln in enumerate(lines):
             self.text((x+44, cy + (k-(len(lines)-1)/2)*17), ln, fnt, anchor="lm")
 
