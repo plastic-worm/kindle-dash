@@ -5,7 +5,7 @@ Service alerts (free, no key). Pollen: not connected yet (placeholder).
 Usage:  python generate.py            -> live data, writes dashboard.png
         python generate.py fixtures/  -> uses saved JSON files (for testing)
 """
-import calendar, datetime as dt, json, math, os, sys, urllib.request
+import calendar, datetime as dt, json, math, os, sys, time, urllib.request
 from zoneinfo import ZoneInfo
 from PIL import Image, ImageDraw, ImageFont
 
@@ -43,8 +43,14 @@ def get(url, fixture_dir, name, headers=None):
         with open(os.path.join(fixture_dir, name)) as f:
             return json.load(f)
     req = urllib.request.Request(url, headers={"User-Agent": "kindle-dash (github.com/plastic-worm)", **(headers or {})})
-    with urllib.request.urlopen(req, timeout=30) as r:
-        return json.load(r)
+    for attempt in range(1, 5):               # 4 tries; servers sometimes time out
+        try:
+            with urllib.request.urlopen(req, timeout=20) as r:
+                return json.load(r)
+        except Exception as e:
+            print(f"{name}: try {attempt} failed: {e}")
+            if attempt == 4: raise
+            time.sleep(15)
 
 def icon_for(code, is_day=1):
     if code in (0, 1): return "sun" if is_day else "moon"
